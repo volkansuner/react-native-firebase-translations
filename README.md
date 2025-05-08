@@ -116,13 +116,13 @@ This package provides CLI tools to import and export translations from/to Fireba
 ### Import Translations from Firebase
 
 ```bash
-npx firebase-translations-import --config ./i18n-config.json --output ./src/translations
+npx firebase-translations-import --config ./translations-config.json --output ./src/translations
 ```
 
 ### Export Translations to Firebase
 
 ```bash
-npx firebase-translations-export --config ./i18n-config.json --input ./src/translations
+npx firebase-translations-export --config ./translations-config.json --input ./src/translations
 ```
 
 ## CLI Options
@@ -131,7 +131,7 @@ npx firebase-translations-export --config ./i18n-config.json --input ./src/trans
 
 | Option | Alias | Description | Default |
 |--------|-------|-------------|---------|
-| `--config` | `-c` | Path to configuration file | `./i18n-config.json` |
+| `--config` | `-c` | Path to configuration file | `./translations-config.json` |
 | `--output` | `-o` | Path to output directory | `../src/translations` |
 | `--format` | `-f` | Output format (typescript or json) | `typescript` |
 | `--locales` | `-l` | Locales to export (comma-separated list) | All locales in config |
@@ -141,7 +141,7 @@ npx firebase-translations-export --config ./i18n-config.json --input ./src/trans
 
 | Option | Alias | Description | Default |
 |--------|-------|-------------|---------|
-| `--config` | `-c` | Path to configuration file | `./i18n-config.json` |
+| `--config` | `-c` | Path to configuration file | `./translations-config.json` |
 | `--input` | `-i` | Path to input directory containing translation files | `../src/translations` |
 | `--format` | `-f` | Input format (typescript or json) | `typescript` |
 | `--locales` | `-l` | Locales to import (comma-separated list) | All locales in config |

@@ -17,6 +17,7 @@ import {
 type TranslationKeys = keyof typeof defaultLocale;
 
 // Context tipi tanımlamaları
+export type TranslationsData = Record<string, Record<string, any>>;
 export type TranslationsContextType = {
   t: (key: TranslationKeys, params?: Record<string, any>) => string;
   locale: string;
@@ -68,7 +69,7 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
 }) => {
   const [locale, setLocaleState] = useState(defaultLocale);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [translationsData, setTranslationsData] = useState(translations);
+  const [translationsData, setTranslationsData] = useState<TranslationsData>(translations);
   const [translationsVersion, setTranslationsVersion] =
     useState(TRANSLATIONS_VERSION);
   const availableLocales = Object.keys(translationsData);
@@ -334,13 +335,15 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
                 };
                 // refreshTranslations tamamlandığında çalışacak bir listener ekle
                 const originalIsLoadingSetter = setIsLoading;
-                setIsLoading = (value: boolean) => {
+                const wrappedSetIsLoading = (value: boolean) => {
                   originalIsLoadingSetter(value);
                   if (value === false) {
                     // Yükleme tamamlandığında kontrol et
                     checkLocaleAfterSync();
                     // Orijinal setter'ı geri yükle
-                    setIsLoading = originalIsLoadingSetter;
+                    // Don't reassign setIsLoading
+                    // Instead, call the original function directly
+                    checkLocaleAfterSync();
                   }
                 };
               }

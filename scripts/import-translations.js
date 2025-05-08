@@ -1,4 +1,4 @@
-
+#!/usr/bin/env node
 
 const fs = require('fs');
 const path = require('path');
@@ -18,7 +18,7 @@ const argv = yargs(hideBin(process.argv))
     alias: 'o',
     description: 'Path to output directory',
     type: 'string',
-    default: '../src/translations' // Değiştirildi: Komut dosyasının bulunduğu dizine göre relatif path
+    default: '../src/translations' 
   })
   .option('format', {
     alias: 'f',
@@ -42,7 +42,7 @@ const argv = yargs(hideBin(process.argv))
   .alias('help', 'h')
   .parse();
 
-// Scriptin bulunduğu dizini al
+// Get the directory where the script is located
 const scriptDir = __dirname;
 
 // Read configuration file
@@ -72,7 +72,7 @@ try {
   process.exit(1);
 }
 
-// Create output directory - Değiştirildi: Komut dosyasının bulunduğu dizine göre
+// Create output directory - Changed: Based on the script's directory
 const outputDir = path.resolve(scriptDir, argv.output);
 if (!fs.existsSync(outputDir)) {
   fs.mkdirSync(outputDir, { recursive: true });
