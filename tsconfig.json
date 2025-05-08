@@ -22,5 +22,4 @@
     "**/__tests__/*",
     "example"
   ],
-  "extends": "expo/tsconfig.base"
 }
