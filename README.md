@@ -26,7 +26,7 @@ pnpm add react-native-firebase-translations
 This package requires the following peer dependencies:
 
 ```bash
-npm install react react-native @react-native-firebase/app @react-native-firebase/database @react-native-async-storage/
+npm install react react-native @react-native-firebase/app @react-native-firebase/database @react-native-async-storage
 ```
 
 ## Setup
