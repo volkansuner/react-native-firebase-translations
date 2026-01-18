@@ -1,4 +1,3 @@
-
 import * as React from "react";
 import { createContext, useContext, useState, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -69,18 +68,21 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
 }) => {
   const [locale, setLocaleState] = useState(defaultLocale);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [translationsData, setTranslationsData] = useState<TranslationsData>(translations);
+  const [translationsData, setTranslationsData] =
+    useState<TranslationsData>(translations);
   const [translationsVersion, setTranslationsVersion] =
     useState(TRANSLATIONS_VERSION);
   const availableLocales = Object.keys(translationsData);
 
   // Add a reference to store the unsubscribe function
-  const [versionListener, setVersionListener] = useState<(() => void) | null>(null);
+  const [versionListener, setVersionListener] = useState<(() => void) | null>(
+    null,
+  );
 
   // Parametre interpolasyonu için yardımcı fonksiyon
   const interpolateParams = (
     text: string,
-    params?: Record<string, any>
+    params?: Record<string, any>,
   ): string => {
     if (!params) return text;
 
@@ -144,10 +146,10 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
       try {
         // First save to AsyncStorage to ensure persistence
         await AsyncStorage.setItem(storageKey, newLocale);
-        
+
         // Then update the state
         setLocaleState(newLocale);
-        
+
         console.log(`Locale set to "${newLocale}" and saved to storage`);
       } catch (error) {
         console.error("Failed to save locale to AsyncStorage:", error);
@@ -156,7 +158,7 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
       }
     } else {
       console.warn(
-        `Locale "${newLocale}" is not available. Available locales: ${availableLocales.join(', ')}`
+        `Locale "${newLocale}" is not available. Available locales: ${availableLocales.join(", ")}`,
       );
     }
   };
@@ -225,7 +227,7 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
         // AsyncStorage'a kaydet
         await AsyncStorage.setItem(
           "@translations:data",
-          JSON.stringify(processedTranslations)
+          JSON.stringify(processedTranslations),
         );
       }
     } catch (error) {
@@ -237,49 +239,76 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
   useEffect(() => {
     if (disableFirebaseSync) return;
 
+    let unsubscribeFunc: (() => void) | null = null;
+
     const setupVersionListener = async () => {
       try {
         const app = getApp();
         const db = getDatabase(app, databaseURL);
         const versionRef = ref(db, translationsVersionPath);
 
-        // Get current stored version
-        const savedVersion = await AsyncStorage.getItem("@translations:version");
-        const storedVersion = savedVersion ? parseInt(savedVersion) : 0;
+        console.log("[Translations] Setting up Firebase version listener...");
 
         // Set up real-time listener
-        const unsubscribe = onValue(
+        unsubscribeFunc = onValue(
           versionRef,
           async (snapshot) => {
+            console.log("[Translations] Firebase snapshot received");
 
             const versionData = snapshot.val();
             const remoteVersion = versionData?.version || 0;
 
-            if (remoteVersion > storedVersion) {
+            console.log(`[Translations] Remote version: ${remoteVersion}`);
+
+            // Always read the current stored version fresh from AsyncStorage
+            const savedVersion = await AsyncStorage.getItem(
+              "@translations:version",
+            );
+            const currentStoredVersion = savedVersion
+              ? parseInt(savedVersion)
+              : 0;
+
+            console.log(
+              `[Translations] Current stored version: ${currentStoredVersion}`,
+            );
+
+            if (remoteVersion > currentStoredVersion) {
               console.log(
-                `Updating translations from version ${translationsVersion} to ${remoteVersion}`
+                `[Translations] Updating translations from version ${currentStoredVersion} to ${remoteVersion}`,
               );
-              
+
               // Update version state and storage
               setTranslationsVersion(remoteVersion);
               await AsyncStorage.setItem(
                 "@translations:version",
-                String(remoteVersion)
+                String(remoteVersion),
               );
-              
+
               // Fetch and update translations
               await fetchAndUpdateTranslations(db);
+
+              console.log("[Translations] Translations updated successfully");
+            } else {
+              console.log(
+                "[Translations] No update needed, versions are equal or local is newer",
+              );
             }
           },
           (error) => {
-            console.error("Error listening to translation version:", error);
-          }
+            console.error(
+              "[Translations] Error listening to translation version:",
+              error,
+            );
+          },
         );
 
         // Store unsubscribe function
-        setVersionListener(() => unsubscribe);
+        setVersionListener(() => unsubscribeFunc);
       } catch (error) {
-        console.error("Failed to set up version listener:", error);
+        console.error(
+          "[Translations] Failed to set up version listener:",
+          error,
+        );
       }
     };
 
@@ -287,8 +316,8 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
 
     // Clean up listener on unmount
     return () => {
-      if (versionListener) {
-        versionListener();
+      if (unsubscribeFunc) {
+        unsubscribeFunc();
       }
     };
   }, [disableFirebaseSync, databaseURL]);
@@ -301,23 +330,28 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
 
         // AsyncStorage'dan kaydedilmiş dil bilgisini yükle
         const savedLocale = await AsyncStorage.getItem(storageKey);
-        console.log(`Retrieved locale from storage: ${savedLocale || 'none'}`);
+        console.log(`Retrieved locale from storage: ${savedLocale || "none"}`);
         if (savedLocale) {
           console.log(`Found locale in storage: ${savedLocale}`);
           if (availableLocales.includes(savedLocale)) {
             console.log(`Setting locale from storage: ${savedLocale}`);
             setLocaleState(savedLocale);
           } else {
-            console.log(`Saved locale "${savedLocale}" not available in current translations`);
-            
+            console.log(
+              `Saved locale "${savedLocale}" not available in current translations`,
+            );
+
             // AsyncStorage'dan kaydedilmiş çeviri verilerini yükle
-            const savedTranslationsData = await AsyncStorage.getItem("@translations:data");
-            
+            const savedTranslationsData =
+              await AsyncStorage.getItem("@translations:data");
+
             if (savedTranslationsData) {
               const parsedData = JSON.parse(savedTranslationsData);
               // AsyncStorage'deki çevirilerde bu dil var mı kontrol et
               if (parsedData && parsedData[savedLocale]) {
-                console.log(`Found saved locale "${savedLocale}" in cached translations`);
+                console.log(
+                  `Found saved locale "${savedLocale}" in cached translations`,
+                );
                 // Çevirileri güncelle ve dili ayarla
                 setTranslationsData(parsedData);
                 setLocaleState(savedLocale);
@@ -329,7 +363,9 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
                 // Firebase senkronizasyonu tamamlandıktan sonra tekrar kontrol et
                 const checkLocaleAfterSync = () => {
                   if (availableLocales.includes(rememberedLocale)) {
-                    console.log(`Setting remembered locale after sync: ${rememberedLocale}`);
+                    console.log(
+                      `Setting remembered locale after sync: ${rememberedLocale}`,
+                    );
                     setLocaleState(rememberedLocale);
                   }
                 };
@@ -360,11 +396,10 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
         }
 
         // AsyncStorage'dan kaydedilmiş çeviri verilerini yükle
-        const savedTranslationsData = await AsyncStorage.getItem(
-          "@translations:data"
-        );
+        const savedTranslationsData =
+          await AsyncStorage.getItem("@translations:data");
         const savedVersion = await AsyncStorage.getItem(
-          "@translations:version"
+          "@translations:version",
         );
 
         if (savedTranslationsData && savedVersion) {
@@ -374,7 +409,6 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
           setTranslationsData(parsedData);
           setTranslationsVersion(parsedVersion);
         }
-
       } catch (error) {
         console.error("Failed to initialize translations:", error);
       } finally {
@@ -409,7 +443,7 @@ export const useTranslations = (): TranslationsContextType => {
 
   if (context === undefined) {
     throw new Error(
-      "useTranslations must be used within a TranslationsProvider"
+      "useTranslations must be used within a TranslationsProvider",
     );
   }
 
