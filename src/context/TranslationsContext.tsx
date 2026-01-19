@@ -47,8 +47,6 @@ export type TranslationsProviderProps = {
   translationsVersionPath?: string;
   disableFirebaseSync?: boolean;
   databaseURL?: string;
-  /** Polling interval in ms for checking version updates. Default: 30000 (30s). Set to 0 to disable. */
-  pollingInterval?: number;
 };
 
 export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
@@ -301,63 +299,6 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
     return () => {
       versionRef.off("value", onVersionChange);
       console.log("[Translations] Version listener removed");
-    };
-  }, [disableFirebaseSync, databaseURL]);
-
-  // Polling fallback for version updates (in case realtime listener doesn't work)
-  useEffect(() => {
-    if (disableFirebaseSync) return;
-
-    // Get polling interval from props or default to 30 seconds
-    const interval = 30000; // Default polling interval
-    if (interval <= 0) return;
-
-    console.log(`[Translations] Starting polling fallback every ${interval}ms`);
-
-    const checkVersionUpdate = async () => {
-      try {
-        const db = getDb();
-        const versionRef = db.ref(translationsVersionPath);
-        const snapshot = await versionRef.once("value");
-        const versionData = snapshot.val();
-
-        // Support both formats
-        let remoteVersion = 0;
-        if (typeof versionData === "number") {
-          remoteVersion = versionData;
-        } else if (typeof versionData === "object" && versionData?.version) {
-          remoteVersion = versionData.version;
-        }
-
-        const savedVersion = await AsyncStorage.getItem(
-          "@translations:version",
-        );
-        const currentStoredVersion = savedVersion ? parseInt(savedVersion) : 0;
-
-        if (remoteVersion > currentStoredVersion) {
-          console.log(
-            `[Translations] Polling detected update: ${currentStoredVersion} -> ${remoteVersion}`,
-          );
-
-          setTranslationsVersion(remoteVersion);
-          await AsyncStorage.setItem(
-            "@translations:version",
-            String(remoteVersion),
-          );
-          await fetchAndUpdateTranslations();
-
-          console.log("[Translations] Translations updated via polling");
-        }
-      } catch (error) {
-        // Silent fail for polling
-      }
-    };
-
-    const pollingTimer = setInterval(checkVersionUpdate, interval);
-
-    return () => {
-      clearInterval(pollingTimer);
-      console.log("[Translations] Polling stopped");
     };
   }, [disableFirebaseSync, databaseURL]);
 
