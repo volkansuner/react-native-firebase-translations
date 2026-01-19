@@ -4,7 +4,14 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { defaultLocale } from "../translations/defaultLocale";
 import defaultTranslations from "../translations";
 import { TRANSLATIONS_VERSION } from "../translations";
-import database from "@react-native-firebase/database";
+import { getApp } from "@react-native-firebase/app";
+import {
+  getDatabase,
+  ref,
+  onValue,
+  get,
+  off,
+} from "@react-native-firebase/database";
 
 // defaultLocale'den tip çıkarımı
 type TranslationKeys = keyof typeof defaultLocale;
@@ -157,12 +164,10 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
     }
   };
 
-  // Get database instance helper
+  // Get database instance helper for Modular API
   const getDb = () => {
-    if (databaseURL) {
-      return database().app.database(databaseURL);
-    }
-    return database();
+    const app = getApp();
+    return getDatabase(app, databaseURL);
   };
 
   // Firebase'den çevirileri yenileme fonksiyonu
@@ -183,8 +188,8 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
   const fetchAndUpdateTranslations = async (): Promise<void> => {
     try {
       const db = getDb();
-      const translationsRef = db.ref(translationsPath);
-      const snapshot = await translationsRef.once("value");
+      const translationsRef = ref(db, translationsPath);
+      const snapshot = await get(translationsRef);
       const firebaseTranslations = snapshot.val();
 
       if (firebaseTranslations) {
@@ -232,12 +237,12 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
     }
   };
 
-  // Setup real-time listener for version changes using class-based API
+  // Setup real-time listener for version changes using Modular API
   useEffect(() => {
     if (disableFirebaseSync) return;
 
     const db = getDb();
-    const versionRef = db.ref(translationsVersionPath);
+    const versionRef = ref(db, translationsVersionPath);
 
     console.log("[Translations] Setting up Firebase version listener...");
 
@@ -292,12 +297,12 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
       }
     };
 
-    // Subscribe to value changes (deprecated but try anyway)
-    versionRef.on("value", onVersionChange);
+    // Subscribe to value changes using Modular API
+    onValue(versionRef, onVersionChange);
 
     // Clean up listener on unmount
     return () => {
-      versionRef.off("value", onVersionChange);
+      off(versionRef, "value", onVersionChange);
       console.log("[Translations] Version listener removed");
     };
   }, [disableFirebaseSync, databaseURL]);
@@ -373,9 +378,9 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
               "[Translations] Checking Firebase for version updates...",
             );
             const db = getDb();
-            const versionRef = db.ref(translationsVersionPath);
+            const versionRef = ref(db, translationsVersionPath);
 
-            const versionSnapshot = await versionRef.once("value");
+            const versionSnapshot = await get(versionRef);
             const versionData = versionSnapshot.val();
 
             console.log(
