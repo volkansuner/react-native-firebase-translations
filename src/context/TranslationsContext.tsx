@@ -14,12 +14,12 @@ import {
 } from "@react-native-firebase/database";
 
 // defaultLocale'den tip çıkarımı
-type TranslationKeys = keyof typeof defaultLocale;
+// type TranslationKeys = keyof typeof defaultLocale;
 
 // Context tipi tanımlamaları
 export type TranslationsData = Record<string, Record<string, any>>;
 export type TranslationsContextType = {
-  t: (key: TranslationKeys, params?: Record<string, any>) => string;
+  t: (key: string, params?: Record<string, any>) => string;
   locale: string;
   setLocale: (locale: string) => Promise<void>;
   isLoading: boolean;
@@ -30,7 +30,7 @@ export type TranslationsContextType = {
 
 // Context'in varsayılan değerleri
 const defaultContext: TranslationsContextType = {
-  t: (key: TranslationKeys) => String(key),
+  t: (key: string) => String(key),
   locale: "tr",
   setLocale: async () => {},
   isLoading: true,
@@ -185,7 +185,7 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
   };
 
   // Add a new function to fetch and update translations
-  const fetchAndUpdateTranslations = async (): Promise<void> => {
+  const fetchAndUpdateTranslations = async (): Promise<boolean> => {
     try {
       const db = getDb();
       const translationsRef = ref(db, translationsPath);
@@ -231,9 +231,13 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
           "@translations:data",
           JSON.stringify(processedTranslations),
         );
+
+        return true;
       }
+      return false;
     } catch (error) {
       console.error("[Translations] Failed to fetch translations:", error);
+      return false;
     }
   };
 
@@ -279,17 +283,22 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
           `[Translations] Updating translations from version ${currentStoredVersion} to ${remoteVersion}`,
         );
 
-        // Update version state and storage
-        setTranslationsVersion(remoteVersion);
-        await AsyncStorage.setItem(
-          "@translations:version",
-          String(remoteVersion),
-        );
+        // First fetch and update translations
+        const success = await fetchAndUpdateTranslations();
 
-        // Fetch and update translations
-        await fetchAndUpdateTranslations();
-
-        console.log("[Translations] Translations updated successfully");
+        if (success) {
+          // Only update version if fetch succeeded
+          setTranslationsVersion(remoteVersion);
+          await AsyncStorage.setItem(
+            "@translations:version",
+            String(remoteVersion),
+          );
+          console.log("[Translations] Translations updated successfully");
+        } else {
+          console.error(
+            "[Translations] Failed to update translations, will retry next time",
+          );
+        }
       } else {
         console.log(
           "[Translations] No update needed, versions are equal or local is newer",
@@ -412,17 +421,24 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
                 `[Translations] New version available! Updating from ${currentStoredVersion} to ${remoteVersion}`,
               );
 
-              // Update version state and storage
-              setTranslationsVersion(remoteVersion);
-              await AsyncStorage.setItem(
-                "@translations:version",
-                String(remoteVersion),
-              );
+              // First fetch and update translations
+              const success = await fetchAndUpdateTranslations();
 
-              // Fetch and update translations
-              await fetchAndUpdateTranslations();
-
-              console.log("[Translations] Translations updated successfully!");
+              if (success) {
+                // Only update version if fetch succeeded
+                setTranslationsVersion(remoteVersion);
+                await AsyncStorage.setItem(
+                  "@translations:version",
+                  String(remoteVersion),
+                );
+                console.log(
+                  "[Translations] Translations updated successfully!",
+                );
+              } else {
+                console.error(
+                  "[Translations] Failed to update translations during init",
+                );
+              }
             } else {
               console.log("[Translations] Translations are up to date");
             }
