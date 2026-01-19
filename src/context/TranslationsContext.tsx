@@ -4,13 +4,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { defaultLocale } from "../translations/defaultLocale";
 import defaultTranslations from "../translations";
 import { TRANSLATIONS_VERSION } from "../translations";
-import { getApp } from "@react-native-firebase/app";
-import {
-  getDatabase,
-  ref,
-  onValue,
-  get,
-} from "@react-native-firebase/database";
+import database from "@react-native-firebase/database";
 
 // defaultLocale'den tip çıkarımı
 type TranslationKeys = keyof typeof defaultLocale;
@@ -53,6 +47,8 @@ export type TranslationsProviderProps = {
   translationsVersionPath?: string;
   disableFirebaseSync?: boolean;
   databaseURL?: string;
+  /** Polling interval in ms for checking version updates. Default: 30000 (30s). Set to 0 to disable. */
+  pollingInterval?: number;
 };
 
 export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
@@ -73,11 +69,6 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
   const [translationsVersion, setTranslationsVersion] =
     useState(TRANSLATIONS_VERSION);
   const availableLocales = Object.keys(translationsData);
-
-  // Add a reference to store the unsubscribe function
-  const [versionListener, setVersionListener] = useState<(() => void) | null>(
-    null,
-  );
 
   // Parametre interpolasyonu için yardımcı fonksiyon
   const interpolateParams = (
@@ -150,17 +141,30 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
         // Then update the state
         setLocaleState(newLocale);
 
-        console.log(`Locale set to "${newLocale}" and saved to storage`);
+        console.log(
+          `[Translations] Locale set to "${newLocale}" and saved to storage`,
+        );
       } catch (error) {
-        console.error("Failed to save locale to AsyncStorage:", error);
+        console.error(
+          "[Translations] Failed to save locale to AsyncStorage:",
+          error,
+        );
         // Still update the state even if storage fails
         setLocaleState(newLocale);
       }
     } else {
       console.warn(
-        `Locale "${newLocale}" is not available. Available locales: ${availableLocales.join(", ")}`,
+        `[Translations] Locale "${newLocale}" is not available. Available locales: ${availableLocales.join(", ")}`,
       );
     }
+  };
+
+  // Get database instance helper
+  const getDb = () => {
+    if (databaseURL) {
+      return database().app.database(databaseURL);
+    }
+    return database();
   };
 
   // Firebase'den çevirileri yenileme fonksiyonu
@@ -169,29 +173,24 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
 
     try {
       setIsLoading(true);
-
-      const app = getApp();
-      const db = getDatabase(app, databaseURL);
-
-      // Firebase'den çevirileri al
-      await fetchAndUpdateTranslations(db);
+      await fetchAndUpdateTranslations();
     } catch (error) {
-      console.error("Failed to refresh translations:", error);
+      console.error("[Translations] Failed to refresh translations:", error);
     } finally {
       setIsLoading(false);
     }
   };
 
   // Add a new function to fetch and update translations
-  const fetchAndUpdateTranslations = async (db: any): Promise<void> => {
+  const fetchAndUpdateTranslations = async (): Promise<void> => {
     try {
-      // Firebase'den çevirileri al
-      const translationsRef = ref(db, translationsPath);
-      const snapshot = await get(translationsRef);
+      const db = getDb();
+      const translationsRef = db.ref(translationsPath);
+      const snapshot = await translationsRef.once("value");
       const firebaseTranslations = snapshot.val();
 
       if (firebaseTranslations) {
-        // Process and update translations (existing code)
+        // Process and update translations
         const processedTranslations: Record<string, any> = {};
         const keys = Object.keys(firebaseTranslations);
 
@@ -231,94 +230,134 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
         );
       }
     } catch (error) {
-      console.error("Failed to fetch translations:", error);
+      console.error("[Translations] Failed to fetch translations:", error);
     }
   };
 
-  // Setup real-time listener for version changes
+  // Setup real-time listener for version changes using class-based API
   useEffect(() => {
     if (disableFirebaseSync) return;
 
-    let unsubscribeFunc: (() => void) | null = null;
+    const db = getDb();
+    const versionRef = db.ref(translationsVersionPath);
 
-    const setupVersionListener = async () => {
-      try {
-        const app = getApp();
-        const db = getDatabase(app, databaseURL);
-        const versionRef = ref(db, translationsVersionPath);
+    console.log("[Translations] Setting up Firebase version listener...");
 
-        console.log("[Translations] Setting up Firebase version listener...");
+    // Define the callback function
+    const onVersionChange = async (snapshot: any) => {
+      console.log("[Translations] Firebase snapshot received");
 
-        // Set up real-time listener
-        unsubscribeFunc = onValue(
-          versionRef,
-          async (snapshot) => {
-            console.log("[Translations] Firebase snapshot received");
+      const versionData = snapshot.val();
+      console.log(
+        "[Translations] Version data from Firebase:",
+        JSON.stringify(versionData),
+      );
 
-            const versionData = snapshot.val();
-            const remoteVersion = versionData?.version || 0;
+      // Support both formats: {version: 86} or just 86
+      let remoteVersion = 0;
+      if (typeof versionData === "number") {
+        remoteVersion = versionData;
+      } else if (typeof versionData === "object" && versionData?.version) {
+        remoteVersion = versionData.version;
+      }
 
-            console.log(`[Translations] Remote version: ${remoteVersion}`);
+      console.log(`[Translations] Remote version: ${remoteVersion}`);
 
-            // Always read the current stored version fresh from AsyncStorage
-            const savedVersion = await AsyncStorage.getItem(
-              "@translations:version",
-            );
-            const currentStoredVersion = savedVersion
-              ? parseInt(savedVersion)
-              : 0;
+      // Always read the current stored version fresh from AsyncStorage
+      const savedVersion = await AsyncStorage.getItem("@translations:version");
+      const currentStoredVersion = savedVersion ? parseInt(savedVersion) : 0;
 
-            console.log(
-              `[Translations] Current stored version: ${currentStoredVersion}`,
-            );
+      console.log(
+        `[Translations] Current stored version: ${currentStoredVersion}`,
+      );
 
-            if (remoteVersion > currentStoredVersion) {
-              console.log(
-                `[Translations] Updating translations from version ${currentStoredVersion} to ${remoteVersion}`,
-              );
-
-              // Update version state and storage
-              setTranslationsVersion(remoteVersion);
-              await AsyncStorage.setItem(
-                "@translations:version",
-                String(remoteVersion),
-              );
-
-              // Fetch and update translations
-              await fetchAndUpdateTranslations(db);
-
-              console.log("[Translations] Translations updated successfully");
-            } else {
-              console.log(
-                "[Translations] No update needed, versions are equal or local is newer",
-              );
-            }
-          },
-          (error) => {
-            console.error(
-              "[Translations] Error listening to translation version:",
-              error,
-            );
-          },
+      if (remoteVersion > currentStoredVersion) {
+        console.log(
+          `[Translations] Updating translations from version ${currentStoredVersion} to ${remoteVersion}`,
         );
 
-        // Store unsubscribe function
-        setVersionListener(() => unsubscribeFunc);
-      } catch (error) {
-        console.error(
-          "[Translations] Failed to set up version listener:",
-          error,
+        // Update version state and storage
+        setTranslationsVersion(remoteVersion);
+        await AsyncStorage.setItem(
+          "@translations:version",
+          String(remoteVersion),
+        );
+
+        // Fetch and update translations
+        await fetchAndUpdateTranslations();
+
+        console.log("[Translations] Translations updated successfully");
+      } else {
+        console.log(
+          "[Translations] No update needed, versions are equal or local is newer",
         );
       }
     };
 
-    setupVersionListener();
+    // Subscribe to value changes (deprecated but try anyway)
+    versionRef.on("value", onVersionChange);
 
     // Clean up listener on unmount
     return () => {
-      if (unsubscribeFunc) {
-        unsubscribeFunc();
+      versionRef.off("value", onVersionChange);
+      console.log("[Translations] Version listener removed");
+    };
+  }, [disableFirebaseSync, databaseURL]);
+
+  // Polling fallback for version updates (in case realtime listener doesn't work)
+  useEffect(() => {
+    if (disableFirebaseSync) return;
+
+    // Get polling interval from props or default to 30 seconds
+    const interval = 30000; // Default polling interval
+    if (interval <= 0) return;
+
+    console.log(`[Translations] Starting polling fallback every ${interval}ms`);
+
+    const checkVersionUpdate = async () => {
+      try {
+        const db = getDb();
+        const versionRef = db.ref(translationsVersionPath);
+        const snapshot = await versionRef.once("value");
+        const versionData = snapshot.val();
+
+        // Support both formats
+        let remoteVersion = 0;
+        if (typeof versionData === "number") {
+          remoteVersion = versionData;
+        } else if (typeof versionData === "object" && versionData?.version) {
+          remoteVersion = versionData.version;
+        }
+
+        const savedVersion = await AsyncStorage.getItem(
+          "@translations:version",
+        );
+        const currentStoredVersion = savedVersion ? parseInt(savedVersion) : 0;
+
+        if (remoteVersion > currentStoredVersion) {
+          console.log(
+            `[Translations] Polling detected update: ${currentStoredVersion} -> ${remoteVersion}`,
+          );
+
+          setTranslationsVersion(remoteVersion);
+          await AsyncStorage.setItem(
+            "@translations:version",
+            String(remoteVersion),
+          );
+          await fetchAndUpdateTranslations();
+
+          console.log("[Translations] Translations updated via polling");
+        }
+      } catch (error) {
+        // Silent fail for polling
       }
+    };
+
+    const pollingTimer = setInterval(checkVersionUpdate, interval);
+
+    return () => {
+      clearInterval(pollingTimer);
+      console.log("[Translations] Polling stopped");
     };
   }, [disableFirebaseSync, databaseURL]);
 
@@ -330,68 +369,41 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
 
         // AsyncStorage'dan kaydedilmiş dil bilgisini yükle
         const savedLocale = await AsyncStorage.getItem(storageKey);
-        console.log(`Retrieved locale from storage: ${savedLocale || "none"}`);
+        console.log(
+          `[Translations] Retrieved locale from storage: ${savedLocale || "none"}`,
+        );
+
         if (savedLocale) {
-          console.log(`Found locale in storage: ${savedLocale}`);
+          console.log(`[Translations] Found locale in storage: ${savedLocale}`);
           if (availableLocales.includes(savedLocale)) {
-            console.log(`Setting locale from storage: ${savedLocale}`);
+            console.log(
+              `[Translations] Setting locale from storage: ${savedLocale}`,
+            );
             setLocaleState(savedLocale);
           } else {
-            console.log(
-              `Saved locale "${savedLocale}" not available in current translations`,
-            );
-
             // AsyncStorage'dan kaydedilmiş çeviri verilerini yükle
             const savedTranslationsData =
               await AsyncStorage.getItem("@translations:data");
 
             if (savedTranslationsData) {
               const parsedData = JSON.parse(savedTranslationsData);
-              // AsyncStorage'deki çevirilerde bu dil var mı kontrol et
               if (parsedData && parsedData[savedLocale]) {
                 console.log(
-                  `Found saved locale "${savedLocale}" in cached translations`,
+                  `[Translations] Found saved locale "${savedLocale}" in cached translations`,
                 );
-                // Çevirileri güncelle ve dili ayarla
                 setTranslationsData(parsedData);
                 setLocaleState(savedLocale);
               } else {
-                // Geçici olarak varsayılan dili kullan, önce AsyncStorage'deki çevirilerde kontrol et, sonra gerekirse Firebase'den çekilenlerde
                 setLocaleState(defaultLocale);
-                // Kaydedilen dili hatırla
-                const rememberedLocale = savedLocale;
-                // Firebase senkronizasyonu tamamlandıktan sonra tekrar kontrol et
-                const checkLocaleAfterSync = () => {
-                  if (availableLocales.includes(rememberedLocale)) {
-                    console.log(
-                      `Setting remembered locale after sync: ${rememberedLocale}`,
-                    );
-                    setLocaleState(rememberedLocale);
-                  }
-                };
-                // refreshTranslations tamamlandığında çalışacak bir listener ekle
-                const originalIsLoadingSetter = setIsLoading;
-                const wrappedSetIsLoading = (value: boolean) => {
-                  originalIsLoadingSetter(value);
-                  if (value === false) {
-                    // Yükleme tamamlandığında kontrol et
-                    checkLocaleAfterSync();
-                    // Orijinal setter'ı geri yükle
-                    // Don't reassign setIsLoading
-                    // Instead, call the original function directly
-                    checkLocaleAfterSync();
-                  }
-                };
               }
             } else {
-              // AsyncStorage'de çeviri yoksa varsayılan dili kullan ve Firebase'i bekle
               setLocaleState(defaultLocale);
-              // Kaydedilen dili hatırla ve Firebase senkronizasyonu sonrası kontrol et
-              // ... (mevcut kod)
             }
           }
         } else {
-          console.log(`No saved locale, using default: ${defaultLocale}`);
+          console.log(
+            `[Translations] No saved locale, using default: ${defaultLocale}`,
+          );
           setLocaleState(defaultLocale);
         }
 
@@ -408,9 +420,78 @@ export const TranslationsProvider: React.FC<TranslationsProviderProps> = ({
 
           setTranslationsData(parsedData);
           setTranslationsVersion(parsedVersion);
+          console.log(
+            `[Translations] Loaded cached translations, version: ${parsedVersion}`,
+          );
+        }
+
+        // Firebase'den aktif versiyon kontrolü yap
+        if (!disableFirebaseSync) {
+          try {
+            console.log(
+              "[Translations] Checking Firebase for version updates...",
+            );
+            const db = getDb();
+            const versionRef = db.ref(translationsVersionPath);
+
+            const versionSnapshot = await versionRef.once("value");
+            const versionData = versionSnapshot.val();
+
+            console.log(
+              "[Translations] Firebase version data:",
+              JSON.stringify(versionData),
+            );
+
+            // Support both formats: {version: 86} or just 86
+            let remoteVersion = 0;
+            if (typeof versionData === "number") {
+              remoteVersion = versionData;
+            } else if (
+              typeof versionData === "object" &&
+              versionData?.version
+            ) {
+              remoteVersion = versionData.version;
+            }
+
+            const currentStoredVersion = savedVersion
+              ? parseInt(savedVersion)
+              : 0;
+
+            console.log(
+              `[Translations] Remote version: ${remoteVersion}, Local version: ${currentStoredVersion}`,
+            );
+
+            if (remoteVersion > currentStoredVersion) {
+              console.log(
+                `[Translations] New version available! Updating from ${currentStoredVersion} to ${remoteVersion}`,
+              );
+
+              // Update version state and storage
+              setTranslationsVersion(remoteVersion);
+              await AsyncStorage.setItem(
+                "@translations:version",
+                String(remoteVersion),
+              );
+
+              // Fetch and update translations
+              await fetchAndUpdateTranslations();
+
+              console.log("[Translations] Translations updated successfully!");
+            } else {
+              console.log("[Translations] Translations are up to date");
+            }
+          } catch (firebaseError) {
+            console.error(
+              "[Translations] Failed to check Firebase for updates:",
+              firebaseError,
+            );
+          }
         }
       } catch (error) {
-        console.error("Failed to initialize translations:", error);
+        console.error(
+          "[Translations] Failed to initialize translations:",
+          error,
+        );
       } finally {
         setIsLoading(false);
       }
